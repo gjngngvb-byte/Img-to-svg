@@ -1,3 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>HQ Hatch Studio</title>
+
+<style>
+body{
+  margin:0;
+  background:#0e0f14;
+  color:#fff;
+  font-family:Arial;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+
+h1{margin:18px;}
+
+.box{
+  width:92%;
+  max-width:1000px;
+  background:#1b1c26;
+  padding:16px;
+  border-radius:12px;
+}
+
+.row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin:10px 0;
+}
+
+input, select, button{
+  padding:8px;
+  border-radius:8px;
+  border:none;
+}
+
+button{
+  background:#6c5ce7;
+  color:white;
+  cursor:pointer;
+}
+
+canvas{
+  margin-top:15px;
+  max-width:100%;
+  background:white;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🖤 HQ HATCH STUDIO</h1>
+
+<div class="box">
+
+  <input type="file" id="file">
+
+  <div class="row">
+
+    📐 Direção:
+    <select id="angle">
+      <option value="0">Horizontal</option>
+      <option value="45">Diagonal ↗</option>
+      <option value="90">Vertical</option>
+      <option value="135">Diagonal ↘</option>
+    </select>
+
+    📊 Densidade:
+    <input type="range" id="spacing" min="4" max="25" value="10">
+
+    🎚️ Modo:
+    <select id="mode">
+      <option value="single">Simples</option>
+      <option value="cross">Cross-hatching</option>
+    </select>
+
+    <button onclick="render()">Gerar HQ</button>
+    <button onclick="download()">Baixar</button>
+
+  </div>
+
+  <canvas id="canvas"></canvas>
+</div>
+
+<script>
+
+let finalImage = null;
+
+function loadImage(file, cb){
+  const img = new Image();
+  const reader = new FileReader();
+
+  reader.onload = e=>{
+    img.onload = ()=>cb(img);
+    img.src = e.target.result;
+  };
+
+  reader.readAsDataURL(file);
+}
+
+// luminância real
+function getLuma(r,g,b){
+  return 0.299*r + 0.587*g + 0.114*b;
+}
+
 function renderHatching(ctx, img, w, h, angle, spacing, mode){
 
   const temp = document.createElement("canvas");
@@ -5,91 +115,122 @@ function renderHatching(ctx, img, w, h, angle, spacing, mode){
   temp.height = h;
 
   const tctx = temp.getContext("2d");
-  tctx.drawImage(img, 0, 0);
+  tctx.drawImage(img,0,0);
 
-  const imgData = tctx.getImageData(0,0,w,h).data;
+  const data = tctx.getImageData(0,0,w,h).data;
 
   const rad = angle * Math.PI / 180;
   const dx = Math.cos(rad);
   const dy = Math.sin(rad);
 
-  // passo base controla densidade global
-  const baseStep = spacing;
+  for(let y=0; y<h; y+=2){
+    for(let x=0; x<w; x+=2){
 
-  for(let y = 0; y < h; y += 2){
-    for(let x = 0; x < w; x += 2){
+      const i = (y*w + x)*4;
 
-      const i = (y*w + x) * 4;
+      const r = data[i];
+      const g = data[i+1];
+      const b = data[i+2];
 
-      const r = imgData[i];
-      const g = imgData[i+1];
-      const b = imgData[i+2];
-
-      // luminância perceptual (mais realista que média simples)
-      const brightness =
-        0.299*r + 0.587*g + 0.114*b;
+      const luma = getLuma(r,g,b);
 
       // 0 = preto, 1 = branco
-      const intensity = brightness / 255;
+      const density = 1 - (luma / 255);
 
-      // 🔥 REGRA CENTRAL:
-      // quanto mais escuro → mais linhas
-      const density = 1 - intensity;
+      // branco absoluto → nada
+      if(density < 0.06) continue;
 
-      // ⚪ branco → nada
-      if(density < 0.08) continue;
+      // controle de espaçamento baseado em densidade
+      const stepFactor = (1 - density);
+      const jitter = Math.random();
 
-      // calcula espaçamento dinâmico
-      // preto → pequeno espaçamento (muitas linhas)
-      const step = baseStep * (1 - density) + 2;
+      if(jitter > density) continue;
 
-      // adiciona jitter para naturalidade
-      if(Math.random() > density) continue;
-
-      const len = density * 18;
+      const len = density * 20;
+      const step = spacing * (stepFactor + 0.3);
 
       const x2 = x + dx * len;
       const y2 = y + dy * len;
 
       ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x2, y2);
+      ctx.moveTo(x,y);
+      ctx.lineTo(x2,y2);
       ctx.stroke();
     }
   }
 
-  // 🔁 cross-hatching opcional (reforço de sombra)
+  // CROSS HATCHING
   if(mode === "cross"){
 
     const rad2 = (angle + 90) * Math.PI / 180;
     const dx2 = Math.cos(rad2);
     const dy2 = Math.sin(rad2);
 
-    for(let y = 0; y < h; y += 3){
-      for(let x = 0; x < w; x += 3){
+    for(let y=0; y<h; y+=3){
+      for(let x=0; x<w; x+=3){
 
-        const i = (y*w + x) * 4;
+        const i = (y*w + x)*4;
 
-        const r = imgData[i];
-        const g = imgData[i+1];
-        const b = imgData[i+2];
+        const r = data[i];
+        const g = data[i+1];
+        const b = data[i+2];
 
-        const brightness =
-          0.299*r + 0.587*g + 0.114*b;
+        const luma = getLuma(r,g,b);
+        const density = 1 - (luma / 255);
 
-        const density = 1 - (brightness / 255);
-
-        if(density < 0.25) continue;
-
-        const len = density * 14;
-
+        if(density < 0.2) continue;
         if(Math.random() > density) continue;
 
+        const len = density * 16;
+
         ctx.beginPath();
-        ctx.moveTo(x, y);
+        ctx.moveTo(x,y);
         ctx.lineTo(x + dx2*len, y + dy2*len);
         ctx.stroke();
       }
     }
   }
 }
+
+function render(){
+
+  const file = document.getElementById("file").files[0];
+  if(!file) return alert("envia uma imagem");
+
+  loadImage(file, img=>{
+
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+
+    canvas.width = img.width;
+    canvas.height = img.height;
+
+    // fundo branco
+    ctx.fillStyle="white";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.strokeStyle="black";
+
+    const angle = parseInt(document.getElementById("angle").value);
+    const spacing = parseInt(document.getElementById("spacing").value);
+    const mode = document.getElementById("mode").value;
+
+    renderHatching(ctx, img, canvas.width, canvas.height, angle, spacing, mode);
+
+    finalImage = canvas.toDataURL("image/png");
+  });
+}
+
+function download(){
+  if(!finalImage) return;
+
+  const a = document.createElement("a");
+  a.href = finalImage;
+  a.download = "hq_hatching.png";
+  a.click();
+}
+
+</script>
+
+</body>
+</html>
