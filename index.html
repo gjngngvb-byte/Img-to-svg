@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8" />
+<title>HQ Screentone AI</title>
+<script src="https://unpkg.com/opencv.js@1.2.1/opencv.js"></script>
+
+<style>
+body{
+  margin:0;
+  background:#0e0f14;
+  color:#fff;
+  font-family:Arial;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+
+h1{margin:20px;}
+
+.box{
+  width:90%;
+  max-width:900px;
+  background:#1b1c26;
+  padding:20px;
+  border-radius:12px;
+}
+
+input, button{
+  padding:10px;
+  margin:5px;
+  border-radius:8px;
+  border:none;
+}
+
+button{
+  background:#6c5ce7;
+  color:white;
+  cursor:pointer;
+}
+
+canvas{
+  margin-top:15px;
+  max-width:100%;
+  background:white;
+}
+
+.row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🖤 HQ Screentone AI</h1>
+
+<div class="box">
+
+  <input type="file" id="file">
+
+  <div class="row">
+    <button onclick="process()">Gerar HQ</button>
+    <button onclick="download()">Baixar resultado</button>
+  </div>
+
+  <canvas id="canvas"></canvas>
+  <canvas id="out"></canvas>
+
+</div>
+
+<script>
+
+let finalImage = null;
+
+function loadImage(file, cb){
+  const img = new Image();
+  const reader = new FileReader();
+
+  reader.onload = e => {
+    img.onload = () => cb(img);
+    img.src = e.target.result;
+  };
+
+  reader.readAsDataURL(file);
+}
+
+function applyScreentone(ctx, w, h, threshold=120){
+
+  const imageData = ctx.getImageData(0,0,w,h);
+  const data = imageData.data;
+
+  const pattern = 6; // densidade do screentone
+
+  for(let y=0;y<h;y+=pattern){
+    for(let x=0;x<w;x+=pattern){
+
+      let i = (y*w + x)*4;
+      let v = data[i];
+
+      if(v < threshold){
+
+        // cria pontos (screentone)
+        ctx.fillStyle = "black";
+
+        let size = 2;
+
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI*2);
+        ctx.fill();
+      }
+    }
+  }
+}
+
+function process(){
+
+  const file = document.getElementById("file").files[0];
+  if(!file) return alert("envia uma imagem");
+
+  loadImage(file, img => {
+
+    const canvas = document.getElementById("canvas");
+    const out = document.getElementById("out");
+
+    const ctx = canvas.getContext("2d");
+    const octx = out.getContext("2d");
+
+    canvas.width = out.width = img.width;
+    canvas.height = out.height = img.height;
+
+    ctx.drawImage(img,0,0);
+
+    let src = cv.imread(canvas);
+    let gray = new cv.Mat();
+    let edges = new cv.Mat();
+
+    // grayscale
+    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+    // blur leve (suaviza desenho)
+    cv.GaussianBlur(gray, gray, new cv.Size(5,5), 0);
+
+    // bordas estilo HQ
+    cv.Canny(gray, edges, 50, 120);
+
+    // limpa canvas final
+    octx.fillStyle = "white";
+    octx.fillRect(0,0,out.width,out.height);
+
+    // desenha linhas (ink)
+    let edgeData = edges.data;
+
+    let imgData = octx.createImageData(out.width, out.height);
+
+    for(let i=0;i<edgeData.length;i++){
+      if(edgeData[i] > 0){
+        imgData.data[i*4] = 0;
+        imgData.data[i*4+1] = 0;
+        imgData.data[i*4+2] = 0;
+        imgData.data[i*4+3] = 255;
+      }
+    }
+
+    octx.putImageData(imgData,0,0);
+
+    // screentone (sombras)
+    applyScreentone(octx, out.width, out.height);
+
+    finalImage = out.toDataURL("image/png");
+
+    src.delete();
+    gray.delete();
+    edges.delete();
+  });
+}
+
+function download(){
+  if(!finalImage) return;
+
+  const a = document.createElement("a");
+  a.href = finalImage;
+  a.download = "hq_screentone.png";
+  a.click();
+}
+
+</script>
+
+</body>
+</html>
