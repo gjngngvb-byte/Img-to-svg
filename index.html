@@ -2,14 +2,12 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8" />
-<title>HQ Screentone AI</title>
-<script src="https://unpkg.com/opencv.js@1.2.1/opencv.js"></script>
-
+<title>HQ Hatch Studio</title>
 <style>
 body{
   margin:0;
   background:#0e0f14;
-  color:#fff;
+  color:white;
   font-family:Arial;
   display:flex;
   flex-direction:column;
@@ -18,25 +16,12 @@ body{
 
 h1{margin:20px;}
 
-.box{
+.panel{
   width:90%;
-  max-width:900px;
+  max-width:950px;
   background:#1b1c26;
-  padding:20px;
+  padding:15px;
   border-radius:12px;
-}
-
-input, button{
-  padding:10px;
-  margin:5px;
-  border-radius:8px;
-  border:none;
-}
-
-button{
-  background:#6c5ce7;
-  color:white;
-  cursor:pointer;
 }
 
 canvas{
@@ -47,142 +32,191 @@ canvas{
 
 .row{
   display:flex;
-  gap:10px;
   flex-wrap:wrap;
+  gap:10px;
+  margin:10px 0;
+}
+
+input, select, button{
+  padding:8px;
+  border-radius:8px;
+  border:none;
+}
+
+button{
+  background:#6c5ce7;
+  color:white;
+  cursor:pointer;
 }
 </style>
 </head>
 
 <body>
 
-<h1>🖤 HQ Screentone AI</h1>
+<h1>🖤 HQ HATCH STUDIO</h1>
 
-<div class="box">
+<div class="panel">
 
   <input type="file" id="file">
 
   <div class="row">
-    <button onclick="process()">Gerar HQ</button>
-    <button onclick="download()">Baixar resultado</button>
+
+    📐 Direção:
+    <select id="angle">
+      <option value="0">Horizontal</option>
+      <option value="45">Diagonal ↗</option>
+      <option value="90">Vertical</option>
+      <option value="135">Diagonal ↘</option>
+    </select>
+
+    📊 Densidade:
+    <input type="range" id="density" min="4" max="30" value="12">
+
+    🧠 Estilo:
+    <select id="mode">
+      <option value="single">Linhas simples</option>
+      <option value="cross">Cross-hatching</option>
+      <option value="dynamic">Dinâmico (HQ)</option>
+    </select>
+
+    <button onclick="render()">Gerar HQ</button>
+    <button onclick="download()">Baixar</button>
+
   </div>
 
   <canvas id="canvas"></canvas>
-  <canvas id="out"></canvas>
-
 </div>
 
 <script>
 
-let finalImage = null;
+let output = null;
 
 function loadImage(file, cb){
   const img = new Image();
-  const reader = new FileReader();
-
-  reader.onload = e => {
-    img.onload = () => cb(img);
+  const r = new FileReader();
+  r.onload = e=>{
+    img.onload = ()=>cb(img);
     img.src = e.target.result;
   };
-
-  reader.readAsDataURL(file);
+  r.readAsDataURL(file);
 }
 
-function applyScreentone(ctx, w, h, threshold=120){
+// converte brilho em densidade de linhas
+function getDensity(brightness){
+  return 1 - (brightness / 255);
+}
 
-  const imageData = ctx.getImageData(0,0,w,h);
-  const data = imageData.data;
+// desenha hachura
+function drawHatch(ctx, w, h, angle, spacing, mode){
 
-  const pattern = 6; // densidade do screentone
+  const rad = angle * Math.PI / 180;
 
-  for(let y=0;y<h;y+=pattern){
-    for(let x=0;x<w;x+=pattern){
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
 
-      let i = (y*w + x)*4;
-      let v = data[i];
+  for(let y=0; y<h; y+=spacing){
+    for(let x=0; x<w; x+=spacing){
 
-      if(v < threshold){
+      const img = ctx.getImageData(x,y,1,1).data;
+      const b = (img[0]+img[1]+img[2]) / 3;
 
-        // cria pontos (screentone)
-        ctx.fillStyle = "black";
+      const d = getDensity(b);
 
-        let size = 2;
+      if(d < 0.15) continue; // branco puro → nada
+
+      const len = d * 25; // tamanho da linha
+
+      const x1 = x;
+      const y1 = y;
+
+      const x2 = x + cos * len;
+      const y2 = y + sin * len;
+
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+  }
+
+  // cross-hatching (segunda camada)
+  if(mode === "cross" || mode === "dynamic"){
+
+    const angle2 = angle + 90;
+    const rad2 = angle2 * Math.PI / 180;
+
+    const cos2 = Math.cos(rad2);
+    const sin2 = Math.sin(rad2);
+
+    for(let y=0; y<h; y+=spacing*1.2){
+      for(let x=0; x<w; x+=spacing*1.2){
+
+        const img = ctx.getImageData(x,y,1,1).data;
+        const b = (img[0]+img[1]+img[2]) / 3;
+
+        const d = getDensity(b);
+
+        if(d < 0.3) continue;
+
+        const len = d * 18;
 
         ctx.beginPath();
-        ctx.arc(x, y, size, 0, Math.PI*2);
-        ctx.fill();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + cos2*len, y + sin2*len);
+        ctx.stroke();
       }
     }
   }
 }
 
-function process(){
+function render(){
 
   const file = document.getElementById("file").files[0];
-  if(!file) return alert("envia uma imagem");
+  if(!file) return alert("envia imagem");
 
-  loadImage(file, img => {
+  loadImage(file, img=>{
 
     const canvas = document.getElementById("canvas");
-    const out = document.getElementById("out");
-
     const ctx = canvas.getContext("2d");
-    const octx = out.getContext("2d");
 
-    canvas.width = out.width = img.width;
-    canvas.height = out.height = img.height;
+    canvas.width = img.width;
+    canvas.height = img.height;
+
+    ctx.fillStyle="white";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
 
     ctx.drawImage(img,0,0);
 
-    let src = cv.imread(canvas);
-    let gray = new cv.Mat();
-    let edges = new cv.Mat();
+    const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
 
-    // grayscale
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    // cria buffer auxiliar (não destruir original)
+    const temp = document.createElement("canvas");
+    temp.width = canvas.width;
+    temp.height = canvas.height;
 
-    // blur leve (suaviza desenho)
-    cv.GaussianBlur(gray, gray, new cv.Size(5,5), 0);
+    const tctx = temp.getContext("2d");
+    tctx.drawImage(img,0,0);
 
-    // bordas estilo HQ
-    cv.Canny(gray, edges, 50, 120);
+    ctx.strokeStyle = "black";
 
-    // limpa canvas final
-    octx.fillStyle = "white";
-    octx.fillRect(0,0,out.width,out.height);
+    const angle = parseInt(document.getElementById("angle").value);
+    const spacing = parseInt(document.getElementById("density").value);
+    const mode = document.getElementById("mode").value;
 
-    // desenha linhas (ink)
-    let edgeData = edges.data;
+    drawHatch(tctx, canvas.width, canvas.height, angle, spacing, mode);
 
-    let imgData = octx.createImageData(out.width, out.height);
+    ctx.drawImage(temp,0,0);
 
-    for(let i=0;i<edgeData.length;i++){
-      if(edgeData[i] > 0){
-        imgData.data[i*4] = 0;
-        imgData.data[i*4+1] = 0;
-        imgData.data[i*4+2] = 0;
-        imgData.data[i*4+3] = 255;
-      }
-    }
-
-    octx.putImageData(imgData,0,0);
-
-    // screentone (sombras)
-    applyScreentone(octx, out.width, out.height);
-
-    finalImage = out.toDataURL("image/png");
-
-    src.delete();
-    gray.delete();
-    edges.delete();
+    output = canvas.toDataURL("image/png");
   });
 }
 
 function download(){
-  if(!finalImage) return;
+  if(!output) return;
 
   const a = document.createElement("a");
-  a.href = finalImage;
-  a.download = "hq_screentone.png";
+  a.href = output;
+  a.download = "hq_hatching.png";
   a.click();
 }
 
