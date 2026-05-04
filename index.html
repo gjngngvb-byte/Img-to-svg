@@ -1,226 +1,95 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-<meta charset="UTF-8" />
-<title>HQ Hatch Studio</title>
-<style>
-body{
-  margin:0;
-  background:#0e0f14;
-  color:white;
-  font-family:Arial;
-  display:flex;
-  flex-direction:column;
-  align-items:center;
-}
+function renderHatching(ctx, img, w, h, angle, spacing, mode){
 
-h1{margin:20px;}
+  const temp = document.createElement("canvas");
+  temp.width = w;
+  temp.height = h;
 
-.panel{
-  width:90%;
-  max-width:950px;
-  background:#1b1c26;
-  padding:15px;
-  border-radius:12px;
-}
+  const tctx = temp.getContext("2d");
+  tctx.drawImage(img, 0, 0);
 
-canvas{
-  margin-top:15px;
-  max-width:100%;
-  background:white;
-}
-
-.row{
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px;
-  margin:10px 0;
-}
-
-input, select, button{
-  padding:8px;
-  border-radius:8px;
-  border:none;
-}
-
-button{
-  background:#6c5ce7;
-  color:white;
-  cursor:pointer;
-}
-</style>
-</head>
-
-<body>
-
-<h1>🖤 HQ HATCH STUDIO</h1>
-
-<div class="panel">
-
-  <input type="file" id="file">
-
-  <div class="row">
-
-    📐 Direção:
-    <select id="angle">
-      <option value="0">Horizontal</option>
-      <option value="45">Diagonal ↗</option>
-      <option value="90">Vertical</option>
-      <option value="135">Diagonal ↘</option>
-    </select>
-
-    📊 Densidade:
-    <input type="range" id="density" min="4" max="30" value="12">
-
-    🧠 Estilo:
-    <select id="mode">
-      <option value="single">Linhas simples</option>
-      <option value="cross">Cross-hatching</option>
-      <option value="dynamic">Dinâmico (HQ)</option>
-    </select>
-
-    <button onclick="render()">Gerar HQ</button>
-    <button onclick="download()">Baixar</button>
-
-  </div>
-
-  <canvas id="canvas"></canvas>
-</div>
-
-<script>
-
-let output = null;
-
-function loadImage(file, cb){
-  const img = new Image();
-  const r = new FileReader();
-  r.onload = e=>{
-    img.onload = ()=>cb(img);
-    img.src = e.target.result;
-  };
-  r.readAsDataURL(file);
-}
-
-// converte brilho em densidade de linhas
-function getDensity(brightness){
-  return 1 - (brightness / 255);
-}
-
-// desenha hachura
-function drawHatch(ctx, w, h, angle, spacing, mode){
+  const imgData = tctx.getImageData(0,0,w,h).data;
 
   const rad = angle * Math.PI / 180;
+  const dx = Math.cos(rad);
+  const dy = Math.sin(rad);
 
-  const cos = Math.cos(rad);
-  const sin = Math.sin(rad);
+  // passo base controla densidade global
+  const baseStep = spacing;
 
-  for(let y=0; y<h; y+=spacing){
-    for(let x=0; x<w; x+=spacing){
+  for(let y = 0; y < h; y += 2){
+    for(let x = 0; x < w; x += 2){
 
-      const img = ctx.getImageData(x,y,1,1).data;
-      const b = (img[0]+img[1]+img[2]) / 3;
+      const i = (y*w + x) * 4;
 
-      const d = getDensity(b);
+      const r = imgData[i];
+      const g = imgData[i+1];
+      const b = imgData[i+2];
 
-      if(d < 0.15) continue; // branco puro → nada
+      // luminância perceptual (mais realista que média simples)
+      const brightness =
+        0.299*r + 0.587*g + 0.114*b;
 
-      const len = d * 25; // tamanho da linha
+      // 0 = preto, 1 = branco
+      const intensity = brightness / 255;
 
-      const x1 = x;
-      const y1 = y;
+      // 🔥 REGRA CENTRAL:
+      // quanto mais escuro → mais linhas
+      const density = 1 - intensity;
 
-      const x2 = x + cos * len;
-      const y2 = y + sin * len;
+      // ⚪ branco → nada
+      if(density < 0.08) continue;
+
+      // calcula espaçamento dinâmico
+      // preto → pequeno espaçamento (muitas linhas)
+      const step = baseStep * (1 - density) + 2;
+
+      // adiciona jitter para naturalidade
+      if(Math.random() > density) continue;
+
+      const len = density * 18;
+
+      const x2 = x + dx * len;
+      const y2 = y + dy * len;
 
       ctx.beginPath();
-      ctx.moveTo(x1, y1);
+      ctx.moveTo(x, y);
       ctx.lineTo(x2, y2);
       ctx.stroke();
     }
   }
 
-  // cross-hatching (segunda camada)
-  if(mode === "cross" || mode === "dynamic"){
+  // 🔁 cross-hatching opcional (reforço de sombra)
+  if(mode === "cross"){
 
-    const angle2 = angle + 90;
-    const rad2 = angle2 * Math.PI / 180;
+    const rad2 = (angle + 90) * Math.PI / 180;
+    const dx2 = Math.cos(rad2);
+    const dy2 = Math.sin(rad2);
 
-    const cos2 = Math.cos(rad2);
-    const sin2 = Math.sin(rad2);
+    for(let y = 0; y < h; y += 3){
+      for(let x = 0; x < w; x += 3){
 
-    for(let y=0; y<h; y+=spacing*1.2){
-      for(let x=0; x<w; x+=spacing*1.2){
+        const i = (y*w + x) * 4;
 
-        const img = ctx.getImageData(x,y,1,1).data;
-        const b = (img[0]+img[1]+img[2]) / 3;
+        const r = imgData[i];
+        const g = imgData[i+1];
+        const b = imgData[i+2];
 
-        const d = getDensity(b);
+        const brightness =
+          0.299*r + 0.587*g + 0.114*b;
 
-        if(d < 0.3) continue;
+        const density = 1 - (brightness / 255);
 
-        const len = d * 18;
+        if(density < 0.25) continue;
+
+        const len = density * 14;
+
+        if(Math.random() > density) continue;
 
         ctx.beginPath();
         ctx.moveTo(x, y);
-        ctx.lineTo(x + cos2*len, y + sin2*len);
+        ctx.lineTo(x + dx2*len, y + dy2*len);
         ctx.stroke();
       }
     }
   }
 }
-
-function render(){
-
-  const file = document.getElementById("file").files[0];
-  if(!file) return alert("envia imagem");
-
-  loadImage(file, img=>{
-
-    const canvas = document.getElementById("canvas");
-    const ctx = canvas.getContext("2d");
-
-    canvas.width = img.width;
-    canvas.height = img.height;
-
-    ctx.fillStyle="white";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-
-    ctx.drawImage(img,0,0);
-
-    const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
-
-    // cria buffer auxiliar (não destruir original)
-    const temp = document.createElement("canvas");
-    temp.width = canvas.width;
-    temp.height = canvas.height;
-
-    const tctx = temp.getContext("2d");
-    tctx.drawImage(img,0,0);
-
-    ctx.strokeStyle = "black";
-
-    const angle = parseInt(document.getElementById("angle").value);
-    const spacing = parseInt(document.getElementById("density").value);
-    const mode = document.getElementById("mode").value;
-
-    drawHatch(tctx, canvas.width, canvas.height, angle, spacing, mode);
-
-    ctx.drawImage(temp,0,0);
-
-    output = canvas.toDataURL("image/png");
-  });
-}
-
-function download(){
-  if(!output) return;
-
-  const a = document.createElement("a");
-  a.href = output;
-  a.download = "hq_hatching.png";
-  a.click();
-}
-
-</script>
-
-</body>
-</html>
